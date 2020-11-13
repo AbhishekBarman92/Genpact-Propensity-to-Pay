@@ -1,0 +1,78 @@
+#Loading libraries
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(lessR)
+library(stringr)
+library(ROCR)
+library(tree)
+library(class)
+library(gbm)
+library(randomForest)
+install.packages("xgboost")
+library(xgboost)
+
+#Loading data
+df = read.csv("/Users/madhavi/Documents/MSBA/Genpact/Genpact_data_updated.csv")
+
+
+#Convert columns to factors to input in the model
+df$Payment_Method_description <- as.factor(df$Payment_Method_description)
+df$Amount_Bins <- as.factor(df$Amount_Bins)
+df$Zipcode <- as.factor(df$Zipcode)
+df$Region <- as.factor(df$Region)
+df$City <- as.factor(df$City)
+df$Customer_Age_Year_Bins <- as.factor(df$Customer_Age_Year_Bins)
+df$Payment_Term_Bins <- as.factor(df$Payment_Term_Bins)
+df$Weekday_due <- as.factor(df$Weekday_due)
+df$Doc_Date <- as.Date(df$Doc_Date,"%m/%d/%Y")
+df$Net_Due_Date <- as.Date(df$Net_Due_Date,"%m/%d/%Y")
+df$Cust_Num <- as.factor(df$Cust_Num)
+
+#Train test split - 70-30%
+
+set.seed(23645)
+
+train <- sample(nrow(df), .7*nrow(df))
+
+df_test <- df[-train, ]
+df_train <- df[train, ]
+
+#Assign target variable
+test_delay_bin <- df_test$Delay_Bins
+train_delay_bin <- df_train$Delay_Bins
+
+rf <- randomForest(Delay_Bins~Payment_Method_description+Amount_Bins+No_of_orders_by_customer+Rank_of_order_by_customer+Region+Age_Of_Customer_Year+Payment_Term_Bins+Doc_Date+Net_Due_Date+Weekday_due, data = df_train, ntree=1000, mtry = 6)
+
+#predict function
+predict_and_classify <- function(treename, pred_data, actuals, cutoff){
+  probs <- predict(treename, newdata = pred_data)
+  classifications <- ifelse(probs>cutoff,1,0)
+  accuracy <- sum(ifelse(classifications==actuals,1,0))/length(actuals)
+  return(accuracy)
+}
+
+#Accuracy on train
+
+pred = predict(rf, newdata = df_train)
+rf_acc <- sum(ifelse(pred==df_train$Delay_Bins,1,0))/nrow(df_train)
+
+#Accuracy on test
+pred_test = predict(rf,newdata = df_test)
+rf_acc_test <- sum(ifelse(pred_test==df_test$Delay_Bins,1,0))/nrow(df_test)
+
+
+####BOOST
+
+df_boost <- df %>% select(Delay_Bins,Payment_Method_description,No_of_orders_by_customer,Rank_of_order_by_customer,Amount_Bins,Region,Age_Of_Customer_Year,Payment_Term_Bins,Weekday_due)
+
+train_boost <- sample(nrow(df_boost), .7*nrow(df_boost))
+
+dfboost_test <- df_boost[-train_boost, ]
+dfboost_train <- df_boost[train_boost, ]
+
+boost.mod <- gbm(Delay_Bins~.,data=dfboost_train,distribution="multinomial",n.trees=1000,interaction.depth=4)
+boost_preds <- predict(boost.mod,newdata=dfboost_train,type='response',n.trees=1000)
+
+
+
